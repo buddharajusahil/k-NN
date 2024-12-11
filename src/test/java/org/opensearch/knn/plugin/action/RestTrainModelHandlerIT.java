@@ -11,7 +11,6 @@
 
 package org.opensearch.knn.plugin.action;
 
-
 import org.apache.http.util.EntityUtils;
 import org.opensearch.client.Request;
 import org.opensearch.client.Response;
@@ -547,7 +546,6 @@ public class RestTrainModelHandlerIT extends KNNRestTestCase {
         assertNotNull(responseBody);
         // old map
         Map<String, Object> responseMap = createParser(XContentType.JSON.xContent(), responseBody).map();
-
 
         assertEquals(modelId, responseMap.get(MODEL_ID));
 
