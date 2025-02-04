@@ -57,7 +57,7 @@ public class VectorIdsKNNIteratorTests extends KNNTestCase {
         );
         for (int i = 0; i < filterIds.length; i++) {
             assertEquals(filterIds[i], iterator.nextDoc());
-            assertEquals(expectedScores.get(i), (Float) iterator.score());
+            assertEquals(expectedScores.get(i), (Float) iterator.score().score);
         }
         assertEquals(DocIdSetIterator.NO_MORE_DOCS, iterator.nextDoc());
     }
@@ -96,7 +96,7 @@ public class VectorIdsKNNIteratorTests extends KNNTestCase {
         VectorIdsKNNIterator iterator = new VectorIdsKNNIterator(queryVector, values, spaceType);
         for (int i = 0; i < dataVectors.size(); i++) {
             assertEquals(i, iterator.nextDoc());
-            assertEquals(expectedScores.get(i), (Float) iterator.score());
+            assertEquals(expectedScores.get(i), (Float) iterator.score().score);
         }
         assertEquals(DocIdSetIterator.NO_MORE_DOCS, iterator.nextDoc());
         verify(values, never()).advance(anyInt());

@@ -6,6 +6,7 @@
 package org.opensearch.knn.index.query.iterators;
 
 import org.apache.lucene.search.DocIdSetIterator;
+import org.apache.lucene.search.ScoreDoc;
 import org.opensearch.common.Nullable;
 import org.opensearch.knn.index.SpaceType;
 import org.opensearch.knn.index.vectorvalues.KNNByteVectorValues;
@@ -31,18 +32,17 @@ public class ByteVectorIdsKNNIterator implements KNNIterator {
         final float[] queryVector,
         final KNNByteVectorValues byteVectorValues,
         final SpaceType spaceType
-    ) throws IOException {
+    ) {
         this.filterIdsIterator = filterIdsIterator;
         this.queryVector = queryVector;
         this.byteVectorValues = byteVectorValues;
         this.spaceType = spaceType;
         // This cannot be moved inside nextDoc() method since it will break when we have nested field, where
         // nextDoc should already be referring to next knnVectorValues
-        this.docId = getNextDocId();
+        this.docId = -1;
     }
 
-    public ByteVectorIdsKNNIterator(final float[] queryVector, final KNNByteVectorValues byteVectorValues, final SpaceType spaceType)
-        throws IOException {
+    public ByteVectorIdsKNNIterator(final float[] queryVector, final KNNByteVectorValues byteVectorValues, final SpaceType spaceType) {
         this(null, queryVector, byteVectorValues, spaceType);
     }
 
@@ -54,23 +54,17 @@ public class ByteVectorIdsKNNIterator implements KNNIterator {
      */
     @Override
     public int nextDoc() throws IOException {
-
-        if (docId == DocIdSetIterator.NO_MORE_DOCS) {
-            return DocIdSetIterator.NO_MORE_DOCS;
-        }
-        currentScore = computeScore();
-        int currentDocId = docId;
         docId = getNextDocId();
-        return currentDocId;
+        return docId;
     }
 
     @Override
-    public float score() {
-        return currentScore;
+    public ScoreDoc score() throws IOException {
+        final byte[] vector = byteVectorValues.getVector();
+        return new ScoreDoc(docId, computeScore(vector));
     }
 
-    protected float computeScore() throws IOException {
-        final byte[] vector = byteVectorValues.getVector();
+    protected float computeScore(byte[] vector) {
         // Calculates a similarity score between the two vectors with a specified function. Higher similarity
         // scores correspond to closer vectors.
 
@@ -96,5 +90,10 @@ public class ByteVectorIdsKNNIterator implements KNNIterator {
             byteVectorValues.advance(nextDocID);
         }
         return nextDocID;
+    }
+
+    public void advanceToId(int advanceDocId) throws IOException {
+        byteVectorValues.advance(advanceDocId);
+        docId = advanceDocId;
     }
 }

@@ -54,7 +54,7 @@ public class BinaryVectorIdsKNNIteratorTests extends TestCase {
         );
         for (int i = 0; i < filterIds.length; i++) {
             assertEquals(filterIds[i], iterator.nextDoc());
-            assertEquals(expectedScores.get(i), (Float) iterator.score());
+            assertEquals(expectedScores.get(i), (Float) iterator.score().score);
         }
         assertEquals(DocIdSetIterator.NO_MORE_DOCS, iterator.nextDoc());
     }
@@ -95,7 +95,7 @@ public class BinaryVectorIdsKNNIteratorTests extends TestCase {
         BinaryVectorIdsKNNIterator iterator = new BinaryVectorIdsKNNIterator(queryVector, values, spaceType);
         for (int i = 0; i < dataVectors.size(); i++) {
             assertEquals(i, iterator.nextDoc());
-            assertEquals(expectedScores.get(i), iterator.score());
+            assertEquals(expectedScores.get(i), iterator.score().score);
         }
         assertEquals(DocIdSetIterator.NO_MORE_DOCS, iterator.nextDoc());
         verify(values, never()).advance(anyInt());

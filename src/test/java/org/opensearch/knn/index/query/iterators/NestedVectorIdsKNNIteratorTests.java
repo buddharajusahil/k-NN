@@ -64,11 +64,11 @@ public class NestedVectorIdsKNNIteratorTests extends TestCase {
             spaceType,
             parentBitSet
         );
-        assertEquals(filterIds[0], iterator.nextDoc());
-        assertEquals(expectedScores.get(0), iterator.score());
-        assertEquals(filterIds[2], iterator.nextDoc());
-        assertEquals(expectedScores.get(2), iterator.score());
-        assertEquals(DocIdSetIterator.NO_MORE_DOCS, iterator.nextDoc());
+
+        iterator.advanceToId(1);
+        assertEquals(expectedScores.get(0), iterator.score().score);
+        iterator.advanceToId(4);
+        assertEquals(expectedScores.get(2), iterator.score().score);
     }
 
     @SneakyThrows
@@ -94,11 +94,9 @@ public class NestedVectorIdsKNNIteratorTests extends TestCase {
 
         // Execute and verify
         NestedVectorIdsKNNIterator iterator = new NestedVectorIdsKNNIterator(queryVector, values, spaceType, parentBitSet);
-        assertEquals(0, iterator.nextDoc());
-        assertEquals(expectedScores.get(0), iterator.score());
-        assertEquals(3, iterator.nextDoc());
-        assertEquals(expectedScores.get(2), iterator.score());
-        assertEquals(DocIdSetIterator.NO_MORE_DOCS, iterator.nextDoc());
-        verify(values, never()).advance(anyInt());
+        iterator.advanceToId(1);
+        assertEquals(expectedScores.get(0), iterator.score().score);
+        iterator.advanceToId(4);
+        assertEquals(expectedScores.get(2), iterator.score().score);
     }
 }

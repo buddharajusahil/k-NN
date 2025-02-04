@@ -7,6 +7,7 @@ package org.opensearch.knn.plugin;
 
 import org.opensearch.cluster.NamedDiff;
 import org.opensearch.cluster.metadata.Metadata;
+import org.opensearch.common.util.concurrent.OpenSearchExecutors;
 import org.opensearch.core.ParseField;
 import org.opensearch.core.action.ActionResponse;
 import org.opensearch.index.codec.CodecServiceFactory;
@@ -114,6 +115,7 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 import static java.util.Collections.singletonList;
+import static org.opensearch.knn.common.KNNConstants.EXACT_SEARCH_THREAD_POOL;
 import static org.opensearch.knn.common.KNNConstants.KNN_THREAD_POOL_PREFIX;
 import static org.opensearch.knn.common.KNNConstants.MODEL_INDEX_NAME;
 import static org.opensearch.knn.common.KNNConstants.TRAIN_THREAD_POOL;
@@ -207,7 +209,7 @@ public class KNNPlugin extends Plugin
         NativeMemoryCacheManager.setThreadPool(threadPool);
         KNNCircuitBreaker.getInstance().initialize(threadPool, clusterService, client);
         KNNQueryBuilder.initialize(ModelDao.OpenSearchKNNModelDao.getInstance());
-        KNNWeight.initialize(ModelDao.OpenSearchKNNModelDao.getInstance());
+        KNNWeight.initialize(ModelDao.OpenSearchKNNModelDao.getInstance(), threadPool);
         TrainingModelRequest.initialize(ModelDao.OpenSearchKNNModelDao.getInstance(), clusterService);
 
         clusterService.addListener(TrainingJobClusterStateListener.getInstance());
@@ -328,7 +330,28 @@ public class KNNPlugin extends Plugin
 
     @Override
     public List<ExecutorBuilder<?>> getExecutorBuilders(Settings settings) {
-        return ImmutableList.of(new FixedExecutorBuilder(settings, TRAIN_THREAD_POOL, 1, 1, KNN_THREAD_POOL_PREFIX, false));
+        FixedExecutorBuilder trainThreadPool = new FixedExecutorBuilder(
+                settings,
+                TRAIN_THREAD_POOL,
+                1,
+                1,
+                KNN_THREAD_POOL_PREFIX + TRAIN_THREAD_POOL,
+                false
+        );
+
+        FixedExecutorBuilder exactSearchThreadPool = new FixedExecutorBuilder(
+                settings,
+                EXACT_SEARCH_THREAD_POOL,
+                OpenSearchExecutors.allocatedProcessors(settings) * 1,
+                -1,
+                KNN_THREAD_POOL_PREFIX + EXACT_SEARCH_THREAD_POOL,
+                false
+        );
+
+        return ImmutableList.of(
+                trainThreadPool,
+                exactSearchThreadPool
+        );
     }
 
     @Override

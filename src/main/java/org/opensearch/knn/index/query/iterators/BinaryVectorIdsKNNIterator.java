@@ -7,6 +7,7 @@ package org.opensearch.knn.index.query.iterators;
 
 import org.apache.lucene.search.DocIdSetIterator;
 import org.opensearch.common.Nullable;
+import org.apache.lucene.search.ScoreDoc;
 import org.opensearch.knn.index.SpaceType;
 import org.opensearch.knn.index.vectorvalues.KNNBinaryVectorValues;
 
@@ -31,18 +32,17 @@ public class BinaryVectorIdsKNNIterator implements KNNIterator {
         final byte[] queryVector,
         final KNNBinaryVectorValues binaryVectorValues,
         final SpaceType spaceType
-    ) throws IOException {
+    ) {
         this.docIdSetIterator = docIdSetIterator;
         this.queryVector = queryVector;
         this.binaryVectorValues = binaryVectorValues;
         this.spaceType = spaceType;
         // This cannot be moved inside nextDoc() method since it will break when we have nested field, where
         // nextDoc should already be referring to next knnVectorValues
-        this.docId = getNextDocId();
+        this.docId = -1;
     }
 
-    public BinaryVectorIdsKNNIterator(final byte[] queryVector, final KNNBinaryVectorValues binaryVectorValues, final SpaceType spaceType)
-        throws IOException {
+    public BinaryVectorIdsKNNIterator(final byte[] queryVector, final KNNBinaryVectorValues binaryVectorValues, final SpaceType spaceType) {
         this(null, queryVector, binaryVectorValues, spaceType);
     }
 
@@ -54,23 +54,17 @@ public class BinaryVectorIdsKNNIterator implements KNNIterator {
      */
     @Override
     public int nextDoc() throws IOException {
-
-        if (docId == DocIdSetIterator.NO_MORE_DOCS) {
-            return DocIdSetIterator.NO_MORE_DOCS;
-        }
-        currentScore = computeScore();
-        int currentDocId = docId;
         docId = getNextDocId();
-        return currentDocId;
+        return docId;
     }
 
     @Override
-    public float score() {
-        return currentScore;
+    public ScoreDoc score() throws IOException {
+        final byte[] vector = binaryVectorValues.getVector();
+        return new ScoreDoc(docId, computeScore(vector));
     }
 
-    protected float computeScore() throws IOException {
-        final byte[] vector = binaryVectorValues.getVector();
+    protected float computeScore(byte[] vector) {
         // Calculates a similarity score between the two vectors with a specified function. Higher similarity
         // scores correspond to closer vectors.
         return spaceType.getKnnVectorSimilarityFunction().compare(queryVector, vector);
@@ -86,5 +80,10 @@ public class BinaryVectorIdsKNNIterator implements KNNIterator {
             binaryVectorValues.advance(nextDocID);
         }
         return nextDocID;
+    }
+
+    public void advanceToId(int advanceDocId) throws IOException {
+        binaryVectorValues.advance(advanceDocId);
+        docId = advanceDocId;
     }
 }

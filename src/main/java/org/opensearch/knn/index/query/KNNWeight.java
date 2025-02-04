@@ -7,6 +7,7 @@ package org.opensearch.knn.index.query;
 
 import com.google.common.annotations.VisibleForTesting;
 import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.LeafReaderContext;
@@ -40,6 +41,7 @@ import org.opensearch.knn.indices.ModelMetadata;
 import org.opensearch.knn.indices.ModelUtil;
 import org.opensearch.knn.jni.JNIService;
 import org.opensearch.knn.plugin.stats.KNNCounter;
+import org.opensearch.threadpool.ThreadPool;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -74,6 +76,8 @@ public class KNNWeight extends Weight {
     private static ExactSearcher DEFAULT_EXACT_SEARCHER;
     private final QuantizationService quantizationService;
 
+    private static ThreadPool threadPool;
+
     public KNNWeight(KNNQuery query, float boost) {
         super(query);
         this.knnQuery = query;
@@ -94,8 +98,8 @@ public class KNNWeight extends Weight {
         this.quantizationService = QuantizationService.getInstance();
     }
 
-    public static void initialize(ModelDao modelDao) {
-        initialize(modelDao, new ExactSearcher(modelDao));
+    public static void initialize(ModelDao modelDao, ThreadPool threadPool) {
+        initialize(modelDao, new ExactSearcher(modelDao, threadPool));
     }
 
     @VisibleForTesting

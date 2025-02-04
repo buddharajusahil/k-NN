@@ -58,6 +58,7 @@ import org.opensearch.knn.indices.ModelCache;
 import org.opensearch.knn.indices.ModelDao;
 import org.opensearch.knn.indices.ModelMetadata;
 import org.opensearch.knn.indices.ModelState;
+import org.opensearch.threadpool.ThreadPool;
 import org.opensearch.watcher.ResourceWatcherService;
 import org.mockito.Mockito;
 
@@ -71,6 +72,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -83,6 +86,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.opensearch.Version.CURRENT;
 import static org.opensearch.knn.common.KNNConstants.DEFAULT_VECTOR_DATA_TYPE_FIELD;
+import static org.opensearch.knn.common.KNNConstants.EXACT_SEARCH_THREAD_POOL;
 import static org.opensearch.knn.common.KNNConstants.HNSW_ALGO_EF_CONSTRUCTION;
 import static org.opensearch.knn.common.KNNConstants.HNSW_ALGO_M;
 import static org.opensearch.knn.common.KNNConstants.INDEX_DESCRIPTION_PARAMETER;
@@ -90,6 +94,7 @@ import static org.opensearch.knn.common.KNNConstants.METHOD_HNSW;
 import static org.opensearch.knn.common.KNNConstants.METHOD_PARAMETER_EF_CONSTRUCTION;
 import static org.opensearch.knn.common.KNNConstants.METHOD_PARAMETER_M;
 import static org.opensearch.knn.common.KNNConstants.SPACE_TYPE;
+import static org.opensearch.knn.common.KNNConstants.TRAIN_THREAD_POOL;
 import static org.opensearch.knn.index.KNNSettings.MODEL_CACHE_SIZE_LIMIT_SETTING;
 
 /**
@@ -297,7 +302,11 @@ public class KNNCodecTestCase extends KNNTestCase {
             writer.close();
 
             // Make sure that search returns the correct results
-            KNNWeight.initialize(modelDao);
+            ExecutorService executorService = Executors.newSingleThreadExecutor();
+            ThreadPool threadPool = mock(ThreadPool.class);
+            when(threadPool.executor(TRAIN_THREAD_POOL)).thenReturn(executorService);
+            when(threadPool.executor(EXACT_SEARCH_THREAD_POOL)).thenReturn(executorService);
+            KNNWeight.initialize(modelDao, threadPool);
             float[] query = { 10.0f, 10.0f, 10.0f };
             IndexSearcher searcher = new IndexSearcher(reader);
             TopDocs topDocs = searcher.search(new KNNQuery(fieldName, query, 4, "dummy", (BitSetProducer) null), 10);

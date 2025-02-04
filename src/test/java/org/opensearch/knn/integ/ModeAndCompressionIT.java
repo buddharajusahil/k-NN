@@ -207,7 +207,7 @@ public class ModeAndCompressionIT extends KNNRestTestCase {
     }
 
     @SneakyThrows
-    public void testDeletedDocsWithSegmentMerge_whenValid_ThenSucceed() {
+       public void testDeletedDocsWithSegmentMerge_whenValid_ThenSucceed() {
         XContentBuilder builder;
         CompressionLevel compressionLevel = CompressionLevel.x32;
         String indexName = INDEX_NAME + compressionLevel;

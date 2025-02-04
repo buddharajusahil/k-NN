@@ -32,6 +32,7 @@ import org.apache.lucene.util.Version;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.mockito.ArgumentMatchers;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -63,29 +64,37 @@ import org.opensearch.knn.quantization.models.quantizationParams.QuantizationPar
 import org.opensearch.knn.quantization.models.quantizationParams.ScalarQuantizationParams;
 import org.opensearch.knn.quantization.models.quantizationState.OneBitScalarQuantizationState;
 import org.opensearch.knn.quantization.models.quantizationState.QuantizationState;
+import org.opensearch.threadpool.ThreadPool;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static java.util.Collections.emptyMap;
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyFloat;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -93,6 +102,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.opensearch.knn.KNNRestTestCase.INDEX_NAME;
+import static org.opensearch.knn.common.KNNConstants.EXACT_SEARCH_THREAD_POOL;
 import static org.opensearch.knn.common.KNNConstants.INDEX_DESCRIPTION_PARAMETER;
 import static org.opensearch.knn.common.KNNConstants.KNN_ENGINE;
 import static org.opensearch.knn.common.KNNConstants.METHOD_PARAMETER_EF_SEARCH;
@@ -245,7 +255,12 @@ public class KNNWeightTests extends KNNTestCase {
         when(modelMetadata.getMethodComponentContext()).thenReturn(new MethodComponentContext("ivf", emptyMap()));
         when(modelDao.getMetadata(eq("modelId"))).thenReturn(modelMetadata);
 
-        KNNWeight.initialize(modelDao);
+        ExecutorService executorService = Executors.newSingleThreadExecutor();
+        ThreadPool threadPool = mock(ThreadPool.class);
+        when(threadPool.executor(EXACT_SEARCH_THREAD_POOL)).thenReturn(executorService);
+        doAnswer(invocationOnMock -> { return null; }).when(threadPool)
+                .schedule(any(Runnable.class), any(TimeValue.class), any(String.class));
+        KNNWeight.initialize(modelDao, threadPool);
         final float boost = (float) randomDoubleBetween(0, 10, true);
         final KNNWeight knnWeight = new KNNWeight(query, boost);
 
@@ -310,7 +325,12 @@ public class KNNWeightTests extends KNNTestCase {
         when(modelMetadata.getKnnEngine()).thenReturn(KNNEngine.FAISS);
         when(modelMetadata.getSpaceType()).thenReturn(spaceType);
 
-        KNNWeight.initialize(modelDao);
+        ExecutorService executorService = Executors.newSingleThreadExecutor();
+        ThreadPool threadPool = mock(ThreadPool.class);
+        when(threadPool.executor(EXACT_SEARCH_THREAD_POOL)).thenReturn(executorService);
+        doAnswer(invocationOnMock -> { return null; }).when(threadPool)
+                .schedule(any(Runnable.class), any(TimeValue.class), any(String.class));
+        KNNWeight.initialize(modelDao, threadPool);
         final KNNWeight knnWeight = new KNNWeight(query, 0.0f);
 
         final LeafReaderContext leafReaderContext = mock(LeafReaderContext.class);
@@ -336,7 +356,12 @@ public class KNNWeightTests extends KNNTestCase {
     @SneakyThrows
     public void testScorer_whenNoVectorFieldsInDocument_thenEmptyScorerIsReturned() {
         final KNNQuery query = new KNNQuery(FIELD_NAME, QUERY_VECTOR, K, INDEX_NAME, (BitSetProducer) null);
-        KNNWeight.initialize(null);
+        ExecutorService executorService = Executors.newSingleThreadExecutor();
+        ThreadPool threadPool = mock(ThreadPool.class);
+        when(threadPool.executor(EXACT_SEARCH_THREAD_POOL)).thenReturn(executorService);
+        doAnswer(invocationOnMock -> { return null; }).when(threadPool)
+                .schedule(any(Runnable.class), any(TimeValue.class), any(String.class));
+        KNNWeight.initialize(null, threadPool);
         final KNNWeight knnWeight = new KNNWeight(query, 0.0f);
 
         final LeafReaderContext leafReaderContext = mock(LeafReaderContext.class);
@@ -881,7 +906,12 @@ public class KNNWeightTests extends KNNTestCase {
 
     public void validateANNWithFilterQuery_whenExactSearch_thenSuccess(final boolean isBinary) throws IOException {
         try (MockedStatic<KNNVectorValuesFactory> valuesFactoryMockedStatic = Mockito.mockStatic(KNNVectorValuesFactory.class)) {
-            KNNWeight.initialize(null);
+            ExecutorService executorService = Executors.newSingleThreadExecutor();
+            ThreadPool threadPool = mock(ThreadPool.class);
+            when(threadPool.executor(EXACT_SEARCH_THREAD_POOL)).thenReturn(executorService);
+            doAnswer(invocationOnMock -> { return null; }).when(threadPool)
+                    .schedule(any(Runnable.class), any(TimeValue.class), any(String.class));
+            KNNWeight.initialize(null, threadPool);
             float[] vector = new float[] { 0.1f, 0.3f };
             byte[] byteVector = new byte[] { 1, 3 };
             int filterDocId = 0;
@@ -1037,7 +1067,12 @@ public class KNNWeightTests extends KNNTestCase {
     @SneakyThrows
     public void testANNWithFilterQuery_whenExactSearchAndThresholdComputations_thenSuccess() {
         ModelDao modelDao = mock(ModelDao.class);
-        KNNWeight.initialize(modelDao);
+        ExecutorService executorService = Executors.newSingleThreadExecutor();
+        ThreadPool threadPool = mock(ThreadPool.class);
+        when(threadPool.executor(EXACT_SEARCH_THREAD_POOL)).thenReturn(executorService);
+        doAnswer(invocationOnMock -> { return null; }).when(threadPool)
+                .schedule(any(Runnable.class), any(TimeValue.class), any(String.class));
+        KNNWeight.initialize(modelDao, threadPool);
         knnSettingsMockedStatic.when(() -> KNNSettings.getFilteredExactSearchThreshold(INDEX_NAME)).thenReturn(-1);
         float[] vector = new float[] { 0.1f, 0.3f };
         int filterDocId = 0;
@@ -1107,7 +1142,12 @@ public class KNNWeightTests extends KNNTestCase {
     @SneakyThrows
     public void testANNWithFilterQuery_whenExactSearchViaThresholdSetting_thenSuccess() {
         ModelDao modelDao = mock(ModelDao.class);
-        KNNWeight.initialize(modelDao);
+        ExecutorService executorService = Executors.newSingleThreadExecutor();
+        ThreadPool threadPool = mock(ThreadPool.class);
+        when(threadPool.executor(EXACT_SEARCH_THREAD_POOL)).thenReturn(executorService);
+        doAnswer(invocationOnMock -> { return null; }).when(threadPool)
+                .schedule(any(Runnable.class), any(TimeValue.class), any(String.class));
+        KNNWeight.initialize(modelDao, threadPool);
         knnSettingsMockedStatic.when(() -> KNNSettings.getFilteredExactSearchThreshold(INDEX_NAME)).thenReturn(10);
         float[] vector = new float[] { 0.1f, 0.3f };
         int k = 1;
@@ -1177,7 +1217,12 @@ public class KNNWeightTests extends KNNTestCase {
     @SneakyThrows
     public void testANNWithFilterQuery_whenExactSearchViaThresholdSettingOnBinaryIndex_thenSuccess() {
         try (MockedStatic<KNNVectorValuesFactory> vectorValuesFactoryMockedStatic = Mockito.mockStatic(KNNVectorValuesFactory.class)) {
-            KNNWeight.initialize(null);
+            ExecutorService executorService = Executors.newSingleThreadExecutor();
+            ThreadPool threadPool = mock(ThreadPool.class);
+            when(threadPool.executor(EXACT_SEARCH_THREAD_POOL)).thenReturn(executorService);
+            doAnswer(invocationOnMock -> { return null; }).when(threadPool)
+                    .schedule(any(Runnable.class), any(TimeValue.class), any(String.class));
+            KNNWeight.initialize(null, threadPool);
             knnSettingsMockedStatic.when(() -> KNNSettings.getFilteredExactSearchThreshold(INDEX_NAME)).thenReturn(10);
             byte[] vector = new byte[] { 1, 3 };
             int k = 1;
@@ -1277,7 +1322,23 @@ public class KNNWeightTests extends KNNTestCase {
     @SneakyThrows
     public void testANNWithParentsFilter_whenExactSearch_thenSuccess() {
         ModelDao modelDao = mock(ModelDao.class);
-        KNNWeight.initialize(modelDao);
+
+        ExecutorService executorService = mock(ExecutorService.class);
+        ThreadPool threadPool = mock(ThreadPool.class);
+        when(threadPool.executor(EXACT_SEARCH_THREAD_POOL)).thenReturn(executorService);
+        when(threadPool.info(EXACT_SEARCH_THREAD_POOL)).thenReturn(mock(ThreadPool.Info.class));
+        when(threadPool.info(EXACT_SEARCH_THREAD_POOL).getMax()).thenReturn(10);
+
+        when(executorService.invokeAll(any())).thenAnswer(invocationOnMock -> {
+            List<Callable<Void>> callables = invocationOnMock.getArgument(0);
+            logger.debug(callables.size());
+            for (Callable<Void> callable : callables) {
+                callable.call();
+            }
+            return null;
+        });
+
+        KNNWeight.initialize(modelDao, threadPool);
         SegmentReader reader = getMockedSegmentReader();
 
         final LeafReaderContext leafReaderContext = mock(LeafReaderContext.class);
