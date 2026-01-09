@@ -33,10 +33,7 @@ import org.opensearch.knn.index.util.IndexUtil;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -51,11 +48,13 @@ public class KNN10010DerivedSourceStoredFieldsWriter extends StoredFieldsWriter 
     private final MapperService mapperService;
 
     private final Set<String> knownVectorFields = new HashSet<>();
+    private final Set<String> knownNestedVectorFields = new HashSet<>();
 
     private Function<Map<String, Object>, Map<String, Object>> vectorMask;
 
     // Keeping the mask as small as possible.
     public final static Byte MASK = 0x1;
+    private int lastKnownFieldCount;
 
     /**
      *
@@ -66,20 +65,8 @@ public class KNN10010DerivedSourceStoredFieldsWriter extends StoredFieldsWriter 
         this.segmentInfo = segmentInfo;
         this.mapperService = mapperService;
 
-        // Initialize with currently known fields
-        // The vector mask will be initialized here upon the first document in the segment
-        // Will work like an incremental cache, updating the vector mask as new fields are discovered
-        for (MappedFieldType fieldType : mapperService.fieldTypes()) {
-            if (fieldType instanceof KNNVectorFieldType knnVectorFieldType) {
-                if (IndexUtil.isDerivedEnabledForField(knnVectorFieldType, mapperService)) {
-                    knownVectorFields.add(fieldType.name().toLowerCase());
-                }
-            }
-        }
-
-        if (!knownVectorFields.isEmpty()) {
-            vectorMask = buildMask(knownVectorFields);
-        }
+        refreshKnownVectorFields();
+        this.lastKnownFieldCount = getFieldCount();
     }
 
     @Override
@@ -116,6 +103,9 @@ public class KNN10010DerivedSourceStoredFieldsWriter extends StoredFieldsWriter 
      * Builds a mask transform function for the given fields.
      */
     private Function<Map<String, Object>, Map<String, Object>> buildMask(Set<String> fields) {
+        if (fields == null || fields.isEmpty()) {
+            return null;
+        }
         return XContentMapValues.transform(
             fields.stream().collect(Collectors.toMap(k -> k, k -> (Object o) -> o == null ? o : MASK)),
             true
@@ -123,78 +113,41 @@ public class KNN10010DerivedSourceStoredFieldsWriter extends StoredFieldsWriter 
     }
 
     /**
-     * Quick check if source contains any unmasked vectors.
-     * Returns false if all vectors are already masked (value = 1) or no vectors present.
+     * Gets the current field count from mapperService.
+     * Used to detect when dynamic mappings have added new fields.
      */
-    private boolean containsUnmaskedVectors(Map<String, Object> source) {
-        for (Map.Entry<String, Object> entry : source.entrySet()) {
-            Object value = entry.getValue();
-
-            // Check if this is an unmasked vector (List of Numbers with more than 1 element)
-            if (value instanceof List<?> list && !list.isEmpty()) {
-                Object first = list.get(0);
-                if (first instanceof Number && list.size() > 1) {
-                    return true;
-                }
-            }
-
-            // Recurse into nested objects
-            if (value instanceof Map) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> nested = (Map<String, Object>) value;
-                if (containsUnmaskedVectors(nested)) {
-                    return true;
-                }
-            }
-
-            // Recurse into arrays of objects
-            if (value instanceof List<?> list) {
-                for (Object item : list) {
-                    if (item instanceof Map) {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> nestedItem = (Map<String, Object>) item;
-                        if (containsUnmaskedVectors(nestedItem)) {
-                            return true;
-                        }
-                    }
-                }
-            }
+    private int getFieldCount() {
+        int count = 0;
+        for (MappedFieldType ignored : mapperService.fieldTypes()) {
+            count++;
         }
-        return false;
+        return count;
     }
 
     /**
-     * Recursively find KNN vector fields in document source.
-     * Only called in slow path when unmasked vectors are detected.
+     * Refreshes the known vector fields from mapperService.
+     * Called on initialization and when new dynamic mappings are detected.
      */
-    private Set<String> findKnnVectorFields(Map<String, Object> source, String prefix) {
-        Set<String> fields = new HashSet<>();
-        for (Map.Entry<String, Object> entry : source.entrySet()) {
-            String fullPath = prefix.isEmpty() ? entry.getKey() : prefix + "." + entry.getKey();
-
-            MappedFieldType fieldType = mapperService.fieldType(fullPath);
+    private void refreshKnownVectorFields() {
+        for (MappedFieldType fieldType : mapperService.fieldTypes()) {
             if (fieldType instanceof KNNVectorFieldType knnVectorFieldType) {
                 if (IndexUtil.isDerivedEnabledForField(knnVectorFieldType, mapperService)) {
-                    fields.add(fullPath.toLowerCase());
-                }
-            }
+                    String fieldName = fieldType.name();
+                    boolean isNested = mapperService.documentMapper().mappers().getNestedScope(fieldName) != null;
 
-            Object value = entry.getValue();
-            if (value instanceof Map) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> nested = (Map<String, Object>) value;
-                fields.addAll(findKnnVectorFields(nested, fullPath));
-            } else if (value instanceof List<?> list) {
-                for (Object item : list) {
-                    if (item instanceof Map) {
-                        @SuppressWarnings("unchecked")
-                        Map<String, Object> nestedItem = (Map<String, Object>) item;
-                        fields.addAll(findKnnVectorFields(nestedItem, fullPath));
+                    if (isNested) {
+                        knownNestedVectorFields.add(fieldName.toLowerCase());
+                    } else {
+                        knownVectorFields.add(fieldName.toLowerCase());
                     }
                 }
             }
         }
-        return fields;
+        // Build mask from both sets combined
+        Set<String> allFields = new HashSet<>();
+        allFields.addAll(knownVectorFields);
+        allFields.addAll(knownNestedVectorFields);
+        vectorMask = buildMask(allFields);
     }
 
     /**
@@ -239,22 +192,10 @@ public class KNN10010DerivedSourceStoredFieldsWriter extends StoredFieldsWriter 
         int result = delegate.merge(mergeState);
 
         if (!vectorFields.isEmpty()) {
-            List<String> sortedVectorFields = new ArrayList<>(vectorFields);
-            Collections.sort(sortedVectorFields);
-            DerivedSourceSegmentAttributeParser.addDerivedVectorFieldsSegmentInfoAttribute(
-                segmentInfo,
-                new ArrayList<>(vectorFields),
-                false
-            );
+            DerivedSourceSegmentAttributeParser.addDerivedVectorFieldsSegmentInfoAttribute(segmentInfo, vectorFields, false);
         }
         if (!nestedVectorFields.isEmpty()) {
-            List<String> sortedNestedVectorFields = new ArrayList<>(nestedVectorFields);
-            Collections.sort(sortedNestedVectorFields);
-            DerivedSourceSegmentAttributeParser.addDerivedVectorFieldsSegmentInfoAttribute(
-                segmentInfo,
-                new ArrayList<>(nestedVectorFields),
-                true
-            );
+            DerivedSourceSegmentAttributeParser.addDerivedVectorFieldsSegmentInfoAttribute(segmentInfo, nestedVectorFields, true);
         }
 
         return result;
@@ -284,37 +225,14 @@ public class KNN10010DerivedSourceStoredFieldsWriter extends StoredFieldsWriter 
             return;
         }
 
-        // Check if source is already masked from preindex masking path.
-        // If it is, we do not need to remask the source here
-        if (!containsUnmaskedVectors(mapTuple.v2())) {
-            delegate.writeField(fieldInfo, bytesRef);
-            return;
+        // Check if mapperService has new fields (cheap integer comparison)
+        int currentFieldCount = getFieldCount();
+        if (currentFieldCount != lastKnownFieldCount) {
+            refreshKnownVectorFields();
+            lastKnownFieldCount = currentFieldCount;
         }
 
-        // This path is only if source is not masked from preindex path
-        // Eg: preindex failed, merging legacy segment with modern segment - need to mask
-        // Find KNN fields in this document
-        if (vectorMask != null) {
-            Map<String, Object> filteredSource = vectorMask.apply(mapTuple.v2());
-
-            // Check if existing masking worked (no unmasked vectors remain)
-            if (!containsUnmaskedVectors(filteredSource)) {
-                // Cached mask was sufficient!
-                BytesStreamOutput bStream = new BytesStreamOutput();
-                MediaType actualContentType = mapTuple.v1();
-                XContentBuilder builder = MediaTypeRegistry.contentBuilder(actualContentType, bStream).map(filteredSource);
-                builder.close();
-                delegate.writeField(fieldInfo, bStream.bytes().toBytesRef());
-                return;
-            }
-        }
-
-        // Cached mask didn't cover all fields - need to discover new ones and build new mask
-        Set<String> fieldsInDoc = findKnnVectorFields(mapTuple.v2(), "");
-        knownVectorFields.addAll(fieldsInDoc);
-        vectorMask = buildMask(knownVectorFields);
-
-        // Apply mask if we have one
+        // Apply mask if we have vector fields (idempotent - safe to apply even if already masked)
         if (vectorMask != null) {
             Map<String, Object> filteredSource = vectorMask.apply(mapTuple.v2());
             BytesStreamOutput bStream = new BytesStreamOutput();
@@ -356,35 +274,13 @@ public class KNN10010DerivedSourceStoredFieldsWriter extends StoredFieldsWriter 
      */
     @Override
     public void finish(int i) throws IOException {
-        List<String> vectorFieldTypes;
-        List<String> nestedVectorFieldTypes;
-
-        vectorFieldTypes = new ArrayList<>();
-        nestedVectorFieldTypes = new ArrayList<>();
-
-        for (MappedFieldType fieldType : mapperService.fieldTypes()) {
-            if (fieldType instanceof KNNVectorFieldType knnVectorFieldType) {
-                if (IndexUtil.isDerivedEnabledForField(knnVectorFieldType, mapperService) == false) {
-                    continue;
-                }
-
-                boolean isNested = mapperService.documentMapper().mappers().getNestedScope(fieldType.name()) != null;
-                if (isNested) {
-                    nestedVectorFieldTypes.add(fieldType.name());
-                } else {
-                    vectorFieldTypes.add(fieldType.name());
-                }
-            }
+        // Reuse already-discovered fields instead of re-iterating mapperService
+        if (!knownVectorFields.isEmpty()) {
+            DerivedSourceSegmentAttributeParser.addDerivedVectorFieldsSegmentInfoAttribute(segmentInfo, knownVectorFields, false);
         }
 
-        // Write segment attributes
-        if (!vectorFieldTypes.isEmpty()) {
-            Collections.sort(vectorFieldTypes);
-            DerivedSourceSegmentAttributeParser.addDerivedVectorFieldsSegmentInfoAttribute(segmentInfo, vectorFieldTypes, false);
-        }
-        if (!nestedVectorFieldTypes.isEmpty()) {
-            Collections.sort(nestedVectorFieldTypes);
-            DerivedSourceSegmentAttributeParser.addDerivedVectorFieldsSegmentInfoAttribute(segmentInfo, nestedVectorFieldTypes, true);
+        if (!knownNestedVectorFields.isEmpty()) {
+            DerivedSourceSegmentAttributeParser.addDerivedVectorFieldsSegmentInfoAttribute(segmentInfo, knownNestedVectorFields, true);
         }
 
         delegate.finish(i);
