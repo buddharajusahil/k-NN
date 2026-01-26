@@ -17,6 +17,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 * Update validation for cases when k is greater than total results [#3038](https://github.com/opensearch-project/k-NN/pull/3038)
 * Add regex support to derived source transformer include / exclude check [#3031](https://github.com/opensearch-project/k-NN/pull/3031)
 * Correct ef_search parameter for Lucene engine and override mergeLeafResults to return top K results [#3037](https://github.com/opensearch-project/k-NN/pull/3037)
+* Fix efficient filtering in nested k-NN queries [#2990](https://github.com/opensearch-project/k-NN/pull/2990)
+* Fix nested docs and exact search query when some docs has no vector field present. [#3051](https://github.com/opensearch-project/k-NN/pull/3051)
+* Changed warmup seek to use long instead of int to avoid overflow [#3067](https://github.com/opensearch-project/k-NN/pull/3067)
+* Fix memory-optimized-search reentrant search bug in byte index. [#3071](https://github.com/opensearch-project/k-NN/pull/3071)
+* Fix MemoryOptimizedKNNWeight to use expanded 'k' for disk based index. [#3061](https://github.com/opensearch-project/k-NN/pull/3061)
 * Fix derived source returning incorrect vector value during indexing with dynamic templates [#3035](https://github.com/opensearch-project/k-NN/pull/3035)
 
 ### Refactoring
